@@ -1,0 +1,473 @@
+---
+title: "Data wrangling and merging I & II"
+subtitle: "Complexities in analyzing conflicts: Data wrangling and data management in R"
+date: "November 13, 2019"
+author: "Cosima Meyer"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+### Preparation: Remove documents, install packages, load data sets
+```{r}
+# Remove all objects from R's memory
+rm(list=ls())  
+```
+
+```{r, message=FALSE, warnings=FALSE, results="hide"}
+# We will use the following code to install all packages
+packages <- c("tidyverse", # to load tidyverse
+              "dplyr",# to load dplyr
+              "haven", # to read in .dta files (also SAS and SPSS)
+              "WDI", # to access World Bank data 
+              "feather", # to compress large-scale datasets
+              "countrycode", # to generate country/continent/region codes
+              "skimr", # for summary statistics
+              "devtools" # to install packages from Github
+              )
+
+# Install uninstalled packages
+lapply(packages[!(packages %in% installed.packages())], install.packages)
+
+# Load all packages to library
+lapply(packages, library, character.only = TRUE)
+```
+
+## What did we learn last time? 
+
+- Loading datasets in various formats (.dta, .RData, .xls/.xlsx, .csv)
+- A format that compresses data (.feather)
+- A glimpse of `tidyverse`
+
+## Tidyverse
+
+The `tidyverse` is a "universe" that includes several packages that all follow the tidyverse logic when it comes to dealing, handling and wrangling the data.
+
+The following figure is taken from this [blog post](https://www.kdnuggets.com/2017/10/tidyverse-powerful-r-toolbox.html) and shows a part of the tidyverse -- but this is not exhaustive. Instead of covering all packages (which will not be possible in this course), we will focus on the major components of tidyverse.
+
+![tidyverse](tidyverse1.png)
+
+Before we delve more into tidyverse, let's briefly look at the hands on exercise that we had at the end of last session:
+
+\pagebreak
+
+**Hands on exercise**
+
+0. Read in the UNPKO dataset.
+```{r}
+unpko <- read_dta("data/CMPS Mission Totals 1990-2011.dta")
+```
+
+1. Which countries are included in the dataset?
+```{r}
+
+```
+
+2. How many missions were on average deployed during the years?
+```{r}
+
+```
+
+3. Now we will use the `ucdp_dyadic` dataset. Reload the dataset (remember, the file is called "ucdp_dyadic_191.RData").
+
+```{r}
+
+```
+
+3.* Bonus with the `unpko` dataset: How many countries are covered in the dataset?
+```{r}
+
+```
+
+4. Subset the dataset to region == 3 only. Save the result in an object called `ucdp_dyad_region`.
+```{r}
+
+```
+
+5. Which (unique) countries are in the location variable? Can you make any sense of what the "3" in region stands for?
+```{r}
+
+```
+
+\pagebreak
+
+# Important functions of `dplyr` and `tidyr` for some first descriptive analysis and data wrangling
+
+### Generate new variables: `mutate()`
+
+If we want to generate a new variable, we use the function `mutate()`. 
+
+Let's say we want to generate a variable that combines `troop` and `police`. We will call this variable `armed_forces`.
+
+```{r}
+unpko <- unpko %>% 
+  dplyr::mutate(armed_forces = troop + police)
+```
+
+We can also use mutate for more difficult operations and combine it with other functions -- but more on this below.
+
+### Descriptive statistics (`mean()`, `max()`, `min()`, ...)
+
+Assume we want to know how many `troop`s we have on average per mission country.
+```{r}
+unpko %>% 
+  dplyr::group_by(missioncountry) %>% 
+  dplyr::summarise(troop_avg = mean(troop))
+```
+
+Or let's say we want to know the maximum of military observers in South Sudan:
+
+```{r}
+unpko %>% 
+  dplyr::filter(missioncountry == "South Sudan") %>% 
+  dplyr::summarise(max_milobs = max(militaryobservers))
+```
+
+### Summary statistics: `skim()`
+
+If we want a more comprehensive overview, the [`skimr` package](https://cran.r-project.org/web/packages/skimr/vignettes/Using_skimr.html) and the `skim()` funciton provides a nice summary statistic. 
+
+```{r}
+skimr::skim(unpko)
+```
+
+### Generate some proportional overview: `count()`
+
+`count()` allows us to generate a quasi proportion table for the different values of our variables. We will use the `count()` function as a way to count the number of observations per missioncountry
+```{r}
+unpko %>% 
+  dplyr::count(missioncountry)
+```
+
+And we now want to sort them so that we've the highest value first.
+
+```{r}
+unpko %>% 
+  dplyr::count(missioncountry, sort = TRUE)
+```
+
+As we can see, 343 missions have no mission country. Why is this the case? We will deal with this later once we're looking more closely into the merging procedure.
+
+### Sort dataset: Combination of `select()` and `everything()`
+
+Sometimes we want to reorder the variables in a dataset. Let's say we want the `country` and the `year` first, but keep everything else as it is we would write:
+
+```{r}
+unpko <- unpko %>% 
+  dplyr::select(missioncountry, year, everything())
+```
+
+\pagebreak 
+
+# Merging
+
+We will showcase the merging procedure with the paper by Hultman et al. (2014). One of our goals for this class is to replicate (some of) the figures in the article (Figure 1-3). To do this, we need information on **UN PKO** and **battle-related deaths**. We rely on the datasets by the [UNPKO data by Jakob Kathman](http://jacobkathman.weebly.com/research.html). and the [UCDP GED Dataset](https://ucdp.uu.se/downloads/index.html#ged_global) 
+
+The general merging procedure follows these steps:
+
+1. Read in data
+2. (Look at data)
+3. Identify unique identifier (usually country and year)
+4. Merge
+5. Check if everything went well
+
+Following this guideline, **we will read in the data sets first**.
+
+Remember, we used the [`haven` package](https://cran.r-project.org/web/packages/haven/haven.pdf) and its `read_dta()` function to read in .dta data.
+
+```{r}
+# Read in a .dta object
+unpko <- read_dta("data/CMPS Mission Totals 1990-2011.dta")
+```
+
+Since the GED data is too large for the R Studio Cloud, we will work again with a restricted dataset (only African countries and only variables that we really need). If you want to replicate the steps later by yourself for a different purpose, I will also add you the full (commented) code below so that you can use it.
+
+```{r}
+# # Read in data
+# ucdp_ged <- readxl::read_excel("data/ged191.xlsx") # loaded as ucdp_ged (takes a while)
+# 
+# # The variable "country" gives us information on the country
+# ucdp_ged <- ucdp_ged %>% # We overwrite our dataset
+#   dplyr::mutate(region = countrycode(country, "country.name", "continent"))
+# # and apply the countrycode() function to generate
+# # our new variable called "region"
+# 
+# # We get the following message: Some values were not matched unambiguously:
+# # Yemen (North Yemen)
+# 
+# # Since this country is not part of the African continent, we can ignore it.
+# 
+# # Restrict to the African continent
+# ucdp_ged_africa <- ucdp_ged %>%
+#   dplyr::filter(region == "Africa")
+# 
+# # We also have so many information in this dataset but we do not need all of them.
+# # We therefore just keep the variables that we really need using the select command
+# ucdp_ged_africa <- ucdp_ged_africa %>%
+#   dplyr::select(conflict_new_id, country, year, date_start, date_end, deaths_a, deaths_b,
+#   deaths_civilians, deaths_unknown, low, best, high)
+# # here we select the variables that we really need
+# 
+# # Save a data.frame as a feather object
+# write_feather(ucdp_ged_africa, "ucdp_ged_africa.feather")
+# # "data.feather" stands for the path and file name,
+# # "df_combined" is our data.frame
+```
+
+We will use the newly generated subsetted dataset and read it in:
+```{r}
+# Read a feather object
+ucdp_ged_africa_fthr <- read_feather("ucdp_ged_africa.feather")
+```
+
+
+\pagebreak
+
+**As the next step, we will now have a first look at the data.** This allows us to get a better idea of what we are dealing with. 
+
+## UNPKO
+
+Which variables are included in the dataset?
+
+```{r}
+names(unpko)
+```
+
+Alternatively, we can also have a `glimpse()` at the data:
+
+```{r}
+unpko %>% # address dataset
+  dplyr::slice(1:4) %>% # take row 1-4
+  dplyr::glimpse() # get a glimpse
+```
+
+Which years are covered by the dataset?
+
+```{r}
+unpko %>% 
+  dplyr::arrange(year) %>% 
+  dplyr::distinct(year) # select only the unique years
+```
+
+It covers 1990 - 2012.
+
+Which countries are included in the dataset?
+```{r}
+unpko %>% 
+    dplyr::distinct(missioncountry) # and select only unique mission countries
+```
+
+As you remember from the Hultman et al. (2014) paper, they only focused on the African continent. We now have more countries spanning around the globe. One first step might therefore be to restrict our dataset to the African continent only. To do so, we have two possible approaches: 1) Select countries on the African continent manually, or, if we want to automatize these steps a bit, 2) rely on a pre-coded continent/region variable.
+
+We rely on a pre-coded variable for the continent. As our dataset does not contain this information, we rely on the [package `countrycode`](https://cran.r-project.org/web/packages/countrycode/countrycode.pdf) and its function `countrycode()` to generate this information (I already loaded the package for you). You can look up the syntax of this function using `? countrycode()`.
+
+```{r, warning = FALSE, message = FALSE}
+unpko <- unpko %>% # We overwrite our dataset
+  dplyr::mutate(region = countrycode(missioncountry, "country.name", "continent")) 
+# and apply the countrycode() function to generate our new variable called "region"
+```
+
+We get the warning that "Some values were not matched unambiguously: , Kosovo, Yugoslavia". We need to code these observations manually.
+
+To do this, we first check which cases are affected (" , " indicates that we have observations with missings for a country).
+
+```{r}
+unpko %>% 
+  dplyr::filter(is.na(region)) # %>% 
+  # View()
+```
+
+As we can see, we do have observations with missings in the `missioncountry` variable. We will first code the `region` variable for Kosovo and Yugoslavia manually. We use the `ifelse()` function. The logic is as follows: `ifelse(test, yes, no)`. Or, in plain words: If an object fulfills a certain value/logical mode (`test`), then do whatever is in `yes`. If not, do whatever is in `no`. We will see this with the following example:
+
+```{r}
+unpko <- unpko %>% 
+  dplyr::mutate(region = ifelse(missioncountry == "Kosovo", "Europe", region))
+```
+
+In plain words, we ask R to check if the `missioncountry` variable has the value `"Kosovo"`. If this is the case, it should assign `"Europe"` to the variable `region`. If this is not the case, it should simply print the observation that is already present in the `region` variable. 
+
+We will du this again with `Yugoslavia`. 
+
+```{r}
+unpko <- unpko %>% 
+  dplyr::mutate(region = ifelse(missioncountry == "Yugoslavia", "Europe", region))
+```
+
+We can also combine both commands in one command using the OR condition (`|`):
+
+```{r}
+unpko_test <- unpko %>% 
+  dplyr::mutate(region = ifelse(missioncountry == "Kosovo" | missioncountry == "Yugoslavia", 
+                                "Europe", region))
+```
+
+If we check now again, we see that we have only regions without a region code left that have no observation in `missioncountry`. Do you remember that 343 missions had no mission country assigned?
+
+```{r}
+unpko %>% 
+  dplyr::filter(is.na(region)) # %>% 
+  # View()
+```
+
+We will use the mission names (`mission`) to identify the mission countries. To do this, we will first need to look up the distinct missions. 
+
+```{r}
+unpko %>% 
+    dplyr::filter(is.na(region)) %>% 
+    dplyr::distinct(mission) # and select only unique missions
+```
+
+These 5 missions have no countryname. We can simply look them up (or know them by heart).
+
+- LBB: ?
+- UNFOR: ? United Forces
+- UNPF: [United Nation Peace Forces](https://www.un.org/ga/acabq/documents/all/673?order=title&sort=asc)
+- UNPROFOR: [Bosnia and Herzegovina, Croatia, the Federal Republic of Yugoslavia (Serbia and Montenegro) and the former Yugoslav Republic of Macedonia](https://peacekeeping.un.org/en/mission/unprofor) between Feb 1992 - March 1995
+- UNTSO: [United Nations Truce Supervision Organization (UNTSO)](https://peacekeeping.un.org/en/mission/untso)
+
+As we see, it is hard to locate these missions geographically in a single country. Luckily, none of these observations seems to be directly located on the African continent. If we were interested in one of these specific missions, we would need to further investigate and make rigorous coding decisions. For our purpose, we can simply drop these observations. We will use the command [`drop_na()`](https://tidyr.tidyverse.org/reference/drop_na.html) from the `tidyr` package to drop observations with missing values.
+
+```{r}
+unpko <- unpko %>%
+  tidyr::drop_na(region)
+```
+
+If we want to check if there are still missings in the `region` variable, we simply use the following code:
+
+```{r}
+unpko %>% 
+  dplyr::filter(is.na(region))
+```
+
+Or we could also count if there are still missing values:
+
+```{r}
+unpko %>%
+  dplyr::summarise(count = sum(is.na(region)))
+```
+
+There are no missings left.
+
+We will now restrict our dataset to the African continent.
+
+```{r}
+unpko_africa <- unpko %>% 
+  dplyr::filter(region == "Africa")
+```
+
+\pagebreak 
+
+## UCDP GED
+
+We will now look at the GED dataset in a similar fashion.
+
+Which variables are included in the dataset?
+
+```{r}
+
+```
+Which years are covered by the dataset?
+
+```{r}
+
+```
+
+It covers 1989 - 2018.
+
+Which countries are included in the dataset?
+
+```{r}
+
+```
+
+We already have only African countries in the dataset because we restricted the dataset before.
+
+After having a quick look at the data, we now need to identify a unique identifier. Typical identifiers are usually a *geograpical location* and a *time variable*. For today's session we will use the information on the *country* and on the *year*. Both datasets have a country variable (`unpko_africa`: `missioncountry`, `ucdp_ged_africa_fthr`: `country`). Both variables contain full country names. Because spelling inconsistencies would lead to non-matching in the merging procedure, it is always advised to choose **unique** identifiers. We will create these identifiers with the function `countrycode()` that we've learned above. We will now generate [ISO3 country codes in alphabetic](https://unstats.un.org/unsd/tradekb/knowledgebase/country-code). We simply replace `"continent"` (remember, we used it to generate our continent variable earlier) with `"iso3c"`. 
+
+```{r}
+# For the UNPKO dataset
+unpko_africa <- unpko_africa %>% 
+  dplyr::mutate(ccode = countrycode(missioncountry, "country.name", "iso3c"))
+
+# For the UCDP GED dataset
+ucdp_ged_africa_fthr <- ucdp_ged_africa_fthr %>% 
+  dplyr::mutate(ccode = countrycode(country, "country.name", "iso3c"))
+```
+
+Since we receive no error/warning messages, everything seemed to have worked perfectly.
+
+Both datasets have a variable called `year` that gives us information on the year.
+
+**Now we are all set for the merging.**
+
+We will use again the `tidyverse` and more specifically the package `dplyr` (see code on your cheat sheet for combining datasets). It offers various operators for merging datasets. The most frequently used are `left_join()`, `right_join()`, `inner_join()`, and `full_join()`. It always takes the arguments in the following order: `left_join(dataset1, dataset2, by="common_identifier")`.  If you come from a Stata background, you might remember the merge results `_merge==1` (from master dataset) and `_merge==2` (from using dataset). You may also remember the different merge operators (m:1, 1:m, m:m). `tidyverse` does not differentiate between a *master* and a *using dataset*. Instead it joins datasets from left or right. If we execute a `left_join()` we would then logically only keep matching rows from dataset1 (which is left). An `inner_join()` command keeps only rows that match both datasets whereas a `full_join()` keeps all observations. 
+
+Let's think logically what we get and what we need. If we use the command `left_join()`, which data do we keep?
+
+```{r, eval=FALSE}
+combined <- unpko_africa_agg %>% # generate new dataset
+  left_join(ucdp_ged_africa_fthr_agg, by = c("year", "ccode"))
+```
+
+In this case we only keep the countries that had peacekeeping operations (and are present in the `unpko` dataset). Given that we want to replicate the figures from the paper, this basis sounds plausible. If your research question requires a different data basis, you need to use a different merging command.
+
+\pagebreak
+
+# Hands on exercise
+
+Now it's your turn. Get together in your groups and follow the next steps. These steps are based on the merging procedure described above.
+
+1. Present the following information to your group mates briefly: What is you (tentative) research question? What is your dependent variable? What is your independent variable? What is the data basis you plan to use? *(max. 5 minutes in total)*
+
+2. I've uploaded (hopefully) all datasets that you will need. Please read in all datasets that you need. The idea is that you work together and generate a dataset that contains **all**  information so that everyone of you can easily pick the pieces that s/he needs. *(max. 15 minutes in total)*
+
+For a better overview, here's a short info on the datasets that I've prepared for you (you can download all datasets from ILIAS):
+
+- [UCDP GED](https://ucdp.uu.se/downloads/index.html#ged_global) (ged191.xlsx) -- this is the full GED dataset
+- [Correlates of War](http://www.correlatesofwar.org) for inter-state wars (Inter-StateWarData_v4.0.csv)
+- [Global Internal Displacement Database](http://www.internal-displacement.org/database/displacement-data) (idmc_displacement_all_dataset.xlsx)
+- [Religion and Armed Conflict (RELAC) data](https://journals.sagepub.com/doi/full/10.1177/0022002717737057) (Relac-JCRrep.xlsx)
+- [UNPKO by Kathman](http://jacobkathman.weebly.com/research.html) (CMPS Mission Totals 1990-2011.dta)
+- [UCDP Termination](https://ucdp.uu.se/downloads/index.html#termination) on conflict-level (ucdp-term-conf-2015.xlsx)
+- [State of Emergency Project](http://emergencymapping.org) (STEM_II.xlsx)
+- [ICOW Territorial Claims Data Set](http://www.paulhensel.org/icowterr.html) (ICOWdata.zip) - you need to download and unzip it first.
+- [SVAC data](http://www.sexualviolencedata.org/dataset/) -- SVAC Dataset CONFLICT-YEAR (Version 2.0)-November 2019 (SVAC_conflictyears_1989-2015.xlsx)
+- [CIRI](http://www.humanrightsdata.com/p/data-documentation.html) (CIRI Data 1981_2011 2014.04.14.csv)
+- [Coca cultivation](http://www.odc.gov.co/sidco/oferta/cultivos-ilicitos/departamento-municipio) (RPT_CultivosIlicitos_2019-11-12--102958.xlsx)
+- [PRIO PETRODATA](https://www.prio.org/Data/Geographical-and-Resource-Datasets/Petroleum-Dataset/Petroleum-Dataset-v-12/) (Petrodata_offshore_V1.2.xlsx and Petrodata_Onshore_V1.2.xlsx)
+- [PRIO DIADATA](https://www.prio.org/Data/Geographical-and-Resource-Datasets/Diamond-Resources/) (DIADATA Excel file.xlsx) 
+
+```{r}
+# Read in the data
+```
+
+3. Have a first look at the data. *(ca. 5-10 minutes)* 
+```{r}
+# Have a first look at the data
+
+```
+
+4. Now you need to decide on a merging procedure. That means that you need to make sure that you know which variable is your common identifier -- do you need to recode something? If you have more than one dataset, which merging steps are most logical? *(ca. 10-30 minutes)*
+```{r}
+# Identify a common identifier (do you need to recode something?)
+
+```
+
+5. Once you've answered all these questions, you're ready to merge! Decide on the type of merging that you want to conduct and merge the data. *(ca. 10-20 minutes)*
+```{r}
+# Merge data
+
+```
+
+6. Double-check if the merging worked. You may want to have a look at the data and see if your new dataset looks good. *(ca. 10-20 minutes)*
+```{r}
+# Double-check if merging worked
+
+```
+
+7. If you are already this far, you can now start exploring your data descriptively more in-depth. *(open end)*
+```{r}
+# Explore your data
+
+```
+

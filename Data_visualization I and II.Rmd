@@ -1,0 +1,327 @@
+---
+title: "Data visualization I + II"
+subtitle: "Complexities in analyzing conflicts: Data wrangling and data management in R"
+date: "November 13, 2019"
+author: "Cosima Meyer"
+output: 
+  html_document
+---
+
+### Preparation: Remove documents, install packages, load data sets
+```{r}
+# Remove all objects from R's memory
+rm(list=ls())  
+```
+
+```{r, message=FALSE, warnings=FALSE, results="hide"}
+# We will use the following code to install all packages
+packages <- c("tidyverse", # to load tidyverse
+              "dplyr",# to load dplyr
+              "ggplot2", # for plotting
+              "haven", # for reading in data
+              "plotly" # for interactive graphs
+              )
+
+# Install uninstalled packages
+lapply(packages[!(packages %in% installed.packages())], install.packages)
+
+# Load all packages to library
+lapply(packages, library, character.only = TRUE)
+```
+
+## Announcements
+
+- \LaTeX workshop next Tuesday -- this will help you to get an even better understanding of R markdown.
+- What did we do last time?
+  - Merging -- what are the steps?
+  - What is important? (**check for duplicates!**)
+
+## General resources
+
+Data visualization is an entire science itself. It ranges from Tufte's ink-information ratio to the best ways of delivering information.
+
+- [dataViztoday](https://dataviztoday.com) has a podcast and also a twitter account ([@dataviztoday](https://twitter.com/dataviztoday)) where they share tipps and tricks and best visualizations.
+- A great repository for visualization (types) and how to find the graphic that you need: [Data to Viz](https://www.data-to-viz.com)
+- [The R Graph Gallery – Help and inspiration for R charts](https://www.r-graph-gallery.com)
+- We will use the [`ggplot2`](https://www.r-graph-gallery.com/portfolio/ggplot2-package/) package today which offers a number of different chart types and is easily customizable. 
+- If you're up for data wrangling, management and visualization, [`tidyTuesday`](https://thomasmock.netlify.com/post/tidytuesday-a-weekly-social-data-project-in-r/) could be something for you.
+
+
+## `ggplot2` basics
+Like the general logic of the tidyverse, `ggplot2` has a layered logic. That means we start off with a general object and add sequentially the parts to it that we want to have.
+
+Here's a short example:
+
+```{r, eval=FALSE}
+Data + 
+    Aesthetic mappings  +
+    Layers (Geometric objects, stats) +
+    Scales +
+    Coordinate system +
+    Faceting +
+    Theme
+```
+
+It is based on the **grammar of graphics** -- which is an idea that assumes that we can build every graph with a few components: **data**, **geoms** (visual marks that represent points), and a **coordinate system**. 
+Translating that to the `ggplot2` components, we need at least the first three layers (*data*, *aesthetic mappings*, and *layers*) to produce a plot. 
+
+**Important**: Instead of adding the `%>%` (pipe) operator here, you will need to use a `+`.
+
+We will first explore the general logic of `ggplot2`. 
+
+To do so, we will (again) first load again the `unpko` dataset. We will now turn to the merged dataset from last time. I stored it for you with the name `combined_data.RData`. 
+```{r}
+load("combind_data.RData")
+```
+
+So, let's translate the code above into `ggplot2` and plot a simple scatterplot in ggplot. 
+
+```{r}
+ggplot(data = combined, # this is the data part
+       aes(x = best, y = troop)) + # aesthetic mappings
+  geom_point() # layers
+```
+
+So, we just did our very first plot!
+
+`ggplot2` allows us to nicely tweak and modify the plot. We could for example also color the points based on `ccode`. 
+
+```{r}
+ggplot(data = combined, # this is the data part
+       aes(x = best, y = troop, # aesthetic mappings
+           color = ccode)) + # add color
+  geom_point() # layers
+```
+
+Apparently, the highest number of forces deployed are in Somalia -- a country which apparently has a low number of battle-related deaths. As we know from history, the highest share of battle-related deaths can be found in Rwanda which also happens to be a case where the international community failed to provide (immediate) sufficient international support.
+
+<!-- We can also change the symbol of the dots that we display. -->
+
+<!-- ```{r} -->
+<!-- ggplot(combined, # this is the data part -->
+<!--        aes(x = best, y = troop, # aesthetic mappings -->
+<!--            color = ccode)) + # add color -->
+<!--        geom_point() # layers -->
+<!-- ``` -->
+
+You can find more in the [cheat sheet]().
+
+## Replicating Figure 1 in Hultman et al. (2014)
+
+Now we will turn to Figure 1 in the Hultman et al. (2014) paper and try to replicate it
+Let's have a look at the data with a time component and let's try to replicate Figure 1.
+
+For this, we will load the `unpko` dataset.
+
+```{r}
+unpko <- read_dta("Data/CMPS Mission Totals 1990-2011.dta")
+```
+
+`ggplot` allows us to use piped objects. This means we can use our already well-known `filter()` function to subset the dataset (in this case to the mission "UNMIL") and plot the number of troops deployed.
+
+```{r}
+unpko %>% 
+  filter(mission == "UNMIL") %>% # Subset it to "UNMIL" only
+  ggplot() + # call ggplot -- ATTENTION: we now use "+"
+  aes(x = year, y = troop) + # select variables
+  geom_point() # add the graph type
+```
+
+For the scatter plot we simply used `geom_point()`. Since Hultman et al. (2014) use a line graph in their paper, we are doing the same here and use `geom_line()`.
+
+```{r}
+unpko %>% 
+  filter(mission == "UNMIL") %>% # Subset it to "UNMIL" only
+  ggplot() + # call ggplot -- ATTENTION: we now use "+"
+  aes(x = year, y = troop) + # select variables
+  geom_line() # add the graph type
+```
+
+Have another look at Figure 1 -- they also plot the mission "UNAVEM" in Angola. We will do the same as above and subset it to this mission.
+
+```{r}
+unpko %>% 
+  filter(mission == "UNAVEM") %>%
+  ggplot() +
+  aes(x = year, y = troop) + 
+  geom_line()
+```
+
+Now we need to add both to one graph. How do we do this? The approach I present you is one way of doing it. 
+We will first generate two subsets of the `unpko` dataset by subsetting it to "UNMIL" and "UNAVEM".
+
+```{r}
+unpko_unmil <- unpko %>% 
+  filter(mission == "UNMIL")
+
+unpko_unavem <- unpko %>% 
+  filter(mission == "UNAVEM")
+```
+
+We will then plot it by adding two `geom_line()` functions to the `ggplot()` function.
+
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = year, y = troop)) +
+  geom_line(data = unpko_unmil,
+            aes(x = year, y = troop))
+```
+
+As you've seen, there are various ways how to call a `ggplot()`. I'll show you three different ways at the example of the code used above.
+
+```{r, eval=FALSE}
+# 1. version
+ggplot(unpko_unavem,
+            aes(x = year, y = troop)) +
+            geom_line()
+```
+
+
+```{r, eval=FALSE}
+# 2. version
+ggplot(unpko_unavem) +
+            geom_line(aes(x = year, y = troop))
+```
+
+
+```{r, eval=FALSE}
+# 3. version
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = year, y = troop))
+```
+
+We used the third version because it allows us to specify a different dataset for each new `geom_line()` function.
+
+While our graph looks similar to Hultman et al. (2014)'s graph, it still looks different. Why is this the case?
+
+As you can see, Hultman et al. (2014) have a count variable in the x-axis whereas we have the years. We will now need to generate a count variable that counts the time of deployment (standardize it).
+
+```{r}
+unpko_unavem$d <- 1
+
+unpko_unavem$count <-
+  with(unpko_unavem, ave(d == 1, cumsum(d == 0), FUN = cumsum))
+
+unpko_unmil$d <- 1
+
+unpko_unmil$count <-
+  with(unpko_unmil, ave(d == 1, cumsum(d == 0), FUN = cumsum))
+```
+
+The count-variable counts up the years of deployment for each mission.
+
+We basically now redo the steps we've done before but change `year` with `count`.
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop)) +
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) 
+```
+
+While the line for UNAVEM is slightly shifted, it already looks pretty much like Figure 1. The shift can be created by the count variable (the count variable just counts observations that are included in the `unpko` dataset and excludes all other data. if there are 0 troops deployed to UNAVEM it is probably not included in our dataset). For the purpose of showcasing `ggplot2` this is totally fine with us. 
+
+We will now do some last finishes and add some axis titles and colors to make it "publication ready".
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop), color = "gray") + # add color
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) 
+```
+We will now add the title:
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop), color = "gray") +
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) +
+  labs(title = "Longitudinal Variation in the Capacity of UN Mission Deployments 
+                \nto Angola and Liberia") + # Add title
+  xlab ("Time of Deployment") + # Add x axis description
+  ylab("Number of UN Military Troops Deployed") # Add y axis description
+```
+
+Since the titles appear to be a bit big, we will decrease the font sizes.
+
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop), color = "gray") +
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) +
+  labs(title = "Longitudinal Variation in the Capacity of UN Mission Deployments 
+                \nto Angola and Liberia") + 
+  xlab ("Time of Deployment") + 
+  ylab("Number of UN Military Troops Deployed") + 
+  theme(text = element_text(size=10)) # change the font sizes
+```
+
+In a last step, we will add a minimalistic theme.
+
+```{r}
+ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop), color = "gray") +
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) +
+  labs(title = "Longitudinal Variation in the Capacity of UN Mission Deployments 
+                \nto Angola and Liberia") + 
+  xlab ("Time of Deployment") + 
+  ylab("Number of UN Military Troops Deployed") + 
+  theme(text = element_text(size=10)) +
+  theme_minimal() # Add a minimalist theme
+```
+
+## Hands on exercise
+
+Now I want you to become creative and start with your own visualization. Remember, I want you to submit a visualization of your expected mechanism. That means that you need to think about a creative way how to best display the relationship between your *dependent variable* and *independent variable*. 
+
+1. Think about a visualization of your RQ. What is you DV? What is your IV? What would be a good way to visualize it? *ca. 5 minutes*
+
+2. Talk with your group about it. *ca. 10 minutes*
+
+3. Load your merged dataset. You might need to save it first (`save(object_name, file = "file_name.RData")`). Then load it (`load("file_name.RData")`.) Pay attention to the path!
+
+4. Start with plotting your theoretical relationship. Remember the general structure of a ggplot. 
+
+```{r}
+
+```
+
+
+## Saving graphs
+
+In a last step, we will learn how to save graphs. We will save the graphs in an object called `plot1` first.
+
+```{r}
+plot1 <- ggplot() +
+  geom_line(data = unpko_unavem,
+            aes(x = count, y = troop), color = "gray") +
+  geom_line(data = unpko_unmil,
+            aes(x = count, y = troop)) +
+  labs(title = "Longitudinal Variation in the Capacity of UN Mission Deployments 
+                \nto Angola and Liberia") + 
+  xlab ("Time of Deployment") + 
+  ylab("Number of UN Military Troops Deployed") + 
+  theme(text = element_text(size=10)) +
+  theme_minimal() 
+  
+ggsave(plot1, filename = "Plot1.png")
+```
+
+## Making interactive graphs
+
+The package `plotly` allows us to easily generate interactive graphs. We simply wrap the function `ggplotly()` around our ggplot object; in this case it's `plot1`.
+
+```{r}
+ggplotly(plot1)
+```
+
+We can now hover the object and get precise information on every single observation point. This is a great tool for a general (web-)based visualization but also for data exploration.
+
+## Further readings
+
+If you want to write your term paper in markdown, this [R markdown workshop](https://www.r-bloggers.com/r-markdown-workshop/) might be worth looking at.

@@ -1,0 +1,317 @@
+---
+title: "Intro to R III"
+subtitle: "Complexities in analyzing conflicts: Data wrangling and data management in R"
+date: "November 8, 2019"
+author: "Cosima Meyer"
+output: pdf_document
+---
+
+## Outline of a markdown file
+
+This markdown file will be the first where we start using the markdown file structure consistently.
+
+### Preparation: Remove documents, install packages, load data sets
+```{r}
+# Remove all objects from R's memory
+rm(list=ls())  
+```
+
+```{r, message=FALSE, warnings=FALSE, results="hide"}
+# We will use the following code to install all packages
+packages <- c("tidyverse", # to load tidyverse
+              "dplyr",# to load dplyr
+              "readxl", # to read in excel files (.xls and .xlsx)
+              "readr", # to read in .csv files
+              "haven", # to read in .dta files (also SAS and SPSS)
+              "feather", # to compress large-scale datasets
+              "WDI", # to access World Bank data 
+              "devtools" # to install packages from Github
+              )
+
+# Install uninstalled packages
+lapply(packages[!(packages %in% installed.packages())], install.packages)
+
+# Load all packages to library
+lapply(packages, library, character.only = TRUE)
+```
+
+```{r, eval=FALSE}
+# Set working directory
+setwd() # This command sets the working directory
+getwd() # This command shows you the present working directory
+dir() # This command XX
+```
+
+Normally, we would import our datasets directly here. But since we're covering this aspect in today's session more in-depth, we discuss it in the next section.
+
+\pagebreak
+
+## Import data
+
+As promised, we will learn how to import data. R can handle several file formats: .RData (R data format), .dta (Stata data format), .csv (comma separated values), .xls/.xlsx (Excel data format), and [many more](https://cran.r-project.org/web/packages/rio/vignettes/rio.html). The above listed file formats are the most common file types and we will consider them therefore here.
+
+### .RData
+
+While [UCDP](https://ucdp.uu.se/downloads/) offers the datasets in various formats but to showcase you how to read-in a .Rdata dataset, we will use the .Rdata format of the [UCDP Dyadic Dataset](https://ucdp.uu.se/downloads/index.html#dyadic). For this, we use R's built-in function `load()`.
+
+```{r}
+load("ucdp_dyadic_191.RData")
+```
+
+### .dta
+
+We will use the data on UN peacekeeping personnel (from 1990-2011) by [Jakob Kathman](http://jacobkathman.weebly.com/research.html) to learn how to read in .dta-file formats. We will use the `read_dta()` function from the [`haven` package](https://cran.r-project.org/web/packages/haven/haven.pdf) which is also part of the `tidyverse`.
+
+```{r}
+# install.packages("haven")
+library(haven) # Also already included in "tidyverse"
+
+unpko <- read_dta("CMPS Mission Totals 1990-2011.dta")
+```
+
+### .csv
+
+Here, we will use the .csv format of the [UCDP Peace Agreement Dataset](https://ucdp.uu.se/downloads/index.html#peaceagreement). We will use the `read_csv()` function from the [`readr` package](https://cran.r-project.org/web/packages/readr/readr.pdf) which is also part of the `tidyverse`.
+
+```{r, warning = FALSE, message = FALSE}
+# install.packages("readr")
+library(readr) # Also already included in "tidyverse"
+
+ucdp_peaceagreeement <- read_csv("ucdp-peace-agreements-191.csv")
+```
+
+### .xls/.xlsx
+We use the .xlsx format of the [UCDP GED Dataset](https://ucdp.uu.se/downloads/index.html#ged_global) to learn how to load excel formats. We will use the `read_excel()` function from the [`readxl` package](https://readxl.tidyverse.org) which is also part of the `tidyverse`.
+
+```{r}
+# install.packages("readxl")
+library(readxl) # Also already included in "tidyverse"
+
+# Read an excel object
+ucdp_ged <- read_excel("ged191.xlsx")
+```
+
+### .feather
+As we can see, the UCDP GED dataset is relatively large. It might be therefore a good idea to resort to a file format that allow us to read in big data sets quickly -- like the newly developed file format [feather](https://blog.rstudio.com/2016/03/29/feather/). I personally find feather very straight forward and helpful with large datasets (usually >500MB/1GB). Beyond, it's incredibly fast with over 600MB/s.
+
+The basic commands are simple:
+```{r, eval = FALSE}
+# install.packages("feather")
+library(feather)
+
+# Save a data.frame as a feather object
+write_feather(ucdp_ged, "ucdp_ged.feather") 
+# "data.feather" stands for the path and file name, 
+# "df_combined" is our data.frame
+
+# Read a feather object
+ucdp_ged_fthr <- read_feather("ucdp_ged.feather")
+```
+
+As you might observe, loading the data now is significantly faster!
+
+The following code checks the performance with "hard facts and numbers":
+
+```{r}
+# Performance of readxl with a .xlsx data file
+system.time(ucdp_ged <- read_excel("ged191.xlsx")) 
+```
+
+```{r}
+# Performance of feather with a .feather data file
+system.time(ucdp_ged_fthr <- read_feather("ucdp_ged.feather")) 
+```
+
+### "Built-in" functions
+
+Some data resources like the [World Bank](https://cran.r-project.org/web/packages/WDI/WDI.pdf) or Quality of Government, provide R packages that allow us to read in data automatically.
+
+#### World Bank
+
+We will use the World Bank dataset to retrieve information on the country's [population size](https://data.worldbank.org/indicator/sp.pop.totl). 
+*(Note, Hultman et al. (2014) used the disaggregated Composite Index of National Capabilities by Singer et al. (1972).)*
+```{r}
+# install.packages("WDI")
+library(WDI)
+
+wb_population <- WDI(indicator = "SP.POP.TOTL", # select the indicator
+                    start = 1990, # define the start date
+                    end = 2011) # define the end date
+```
+
+You can also further define which countries you want to include and add more indicators.
+
+#### Quality of Government
+
+There is also a package that allows us to directly access data from the [Quality of Government](https://qog.pol.gu.se/data). This [package](https://github.com/rOpenGov/rqog) is on Github and therefore requires a slightly different installation.
+
+```{r, message=FALSE, warnings=FALSE}
+devtools::install_github("ropengov/rqog")
+library(rqog)
+```
+
+We pretend that we are interested in the regime type of the countries and download all information from the Polity IV project
+
+```{r, message=FALSE, warnings=FALSE}
+basic <-
+  read_qog(which_data = "basic", # to access the basic dataset 
+           # (you usually may want to access the "standard" dataset)
+           data_type = "time-series") # select the data type 
+           # (we are interested in longitudinal data)
+
+qog_polity <- basic %>% # call the basic dataset
+  dplyr::filter(year %in% 1990:2011) %>%  # define the time frame
+  dplyr::select(year, cname, p_polity2) # select the indicator
+```
+
+### Bonus: Saving datasets without and with an automatic time stamp.
+
+In particular when using automatically downloaded datasets, it might make sense to save a the most recent version of the datasets with a time stamp. The following code shows how to a) generally save datasets in R and b) how to save datasets with a time stamp.
+
+```{r}
+# a) save datasets as RData files in R
+save(wb_population, file = "wbpopulation.RData")
+```
+
+We generate an automatic time stamp using `paste0()`. `paste0()` allows us to combine several strings without spaces inbetween.
+What you can see here is that we combine "wbpopulation" with the current date (provided by `Sys.Date()`) and add the extension ".RData".
+
+```{r}
+# b) save datasets as RData files in R with automatic time stamps
+name_wb <- paste0("wbpopulation-", Sys.Date(), ".RData")
+name_wb
+```
+We save this information in the object `name_wb` and use it so save wb_population as done above.
+
+```{r}
+save(wb_population, file = name_wb)
+```
+
+## Hands on exercise
+
+I provided you with three additional datasets (see below) -- load these datasets by using the functions that we discussed above.
+
+[Political Terror Scale](http://www.politicalterrorscale.org/Data/Download.html) (PTS-2019.dta)
+```{r}
+
+```
+
+[National Elections Across Democracy and Autocracy (NELDA)](https://nelda.co) (NELDA.csv)
+```{r}
+
+```
+
+[Electoral Contention and Violence (ECAV)](https://ecavdata.org) (ECAV_V1.1.xls)
+```{r, warning = FALSE, message = FALSE}
+
+```
+
+\pagebreak
+
+## Explore the data descriptively
+
+To explore data descriptively, we will learn the basics of `tidyverse` today.
+
+### Tidyverse
+
+The R universe (and the data management in R) basically builds upon two (seemingly contradictive) approaches: **base R** and **tidyverse**. These two approaches are often seen as two different philosophies. Base R is already implemented in R, whereas the `tidyverse` requires the user to load new packages. People often find base R unintuitive and hard to read. This is why [Hadley Wickham](http://hadley.nz) developed and introduced the `tidyverse` -- a more intuitive approach to manage and wrangle data. Code written before 2014 was usually written in base R whereas the [tidyverse style is becoming more and the standard style](https://martinctc.github.io/blog/using-data.table-with-magrittr-pipes-best-of-both-worlds/).
+
+If you look at Figure 1, you may observe that the two code "chuncks" are susbstantially different. What are differences that you observe?
+
+
+
+![Base R vs. Tidyverse](basertidyverse.png)
+
+
+
+
+
+We will build upon `tidyverse` throughout the course. The logic is fairly simple: As you can see in the graphic above, you have your main object (`me`) in `tidyverse` and you pipe (`%>%`) through this object by filtering, selecting, renaming, ... parts of it. In base R you would in contrast wrap the commands around your main object which makes it unnecessarily hard to follow the code. To get a better idea how tidyverse and its pipes work, we will do some first descriptive (exploratory) analysis.
+
+
+We use our `unpko` dataset and retrieve information on the time span of the dataset. What could be one way to look at the data?
+
+```{r}
+
+```
+
+As this approach does not produce nice results, we use a combination of `arrange()` and `distinct()`.
+
+```{r}
+unpko %>% 
+  arrange(year) %>% # we sort the year variable
+  dplyr::distinct(year) # and select only unique years
+```
+
+As we can see, the dataset covers 1990 - 2012.
+
+If we want to subset the dataset to Burundi only, we could use the following code:
+
+```{r}
+unpko_bdi <- unpko %>% # save it in "unpko_bdi"
+  dplyr::filter(missioncountry == "Burundi") # only look at "Burundi" 
+```
+
+Note, we need to use a double equation sign (`==`) because we are selecting on a conditionality (similar to an if-function).
+
+If we want to look at the average troop deployment in Burundi per year, build upon the previous code and extend it.
+
+```{r}
+unpko %>% 
+  dplyr::filter(missioncountry == "Burundi") %>% # only look at "Burundi"
+  dplyr::group_by(year) %>% # group by year
+  dplyr::summarise(mean_troop_deployment = mean(troop)) 
+  # generate mean troop deployment with summarise() 
+  # and mean()
+```
+
+2007-2012 show 0. We can use the `View()` command to double-check if there are no values.
+
+```{r}
+unpko %>%
+  dplyr::filter(missioncountry == "Burundi", # filter for country
+                year %in% c(2007, 2008, 2009, 2010, 2011, 2012)) %>%
+                # filter for year
+  View() # View
+```
+
+As we can see, there is 0 personnel deployed.
+
+## Hands on exercise
+
+1. Which countries are included in the dataset?
+```{r}
+
+```
+
+2. How many missions were on average deployed during the years?
+```{r}
+
+```
+
+3. Now we will use the `ucdp_dyadic` dataset. Reload the dataset (remember, the file is called "ucdp_dyadic_191.RData").
+
+```{r}
+
+```
+
+3.* Bonus with the `unpko` dataset: How many countries are covered in the dataset?
+```{r}
+
+```
+
+4. Subset the dataset to region == 3 only. Save the result in an object called `ucdp_dyad_region`.
+```{r}
+
+```
+
+5. Which (unique) countries are in the location variable? Can you make any sense of what the "3" in region stands for?
+```{r}
+
+```
+
+
+## Further input
+
+- [A Tidyverse Cookbook](https://rstudio-education.github.io/tidyverse-cookbook/how-to-use-this-book.html)
+- [Stackoverflow](https://stackoverflow.com)
